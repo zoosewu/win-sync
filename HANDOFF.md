@@ -28,6 +28,9 @@
 - 備份資料拆成兩部分（使用者要求）：`config.json` 的 links 只有 name／title／description／fileName（同步）；各電腦的位置在工具資料夾的 `local.json`（gitignore、不同步，值為 null 表示這台不使用）。
   取代了先前的 `path`／`machines` 欄位，舊格式沒有做轉換（尚未有實際使用者）。templates 的 `path` 只用在第一台電腦建立資料時。
 - 尚未設定位置的備份會產生待辦，列出標題與描述。
+- 自動更新（`lib/Update.ps1`）：背景同步時一天最多檢查一次（`%LOCALAPPDATA%\win-sync\last-update-check.txt`）；`win-sync update`、選單「檢查更新」可手動執行。
+  git 安裝的只做 fast-forward，有未提交修改、不在 main、有未推送 commit 時跳過；zip 安裝的用 GitHub API 取最新 sha，下載後用 robocopy /E 覆蓋（不用 /MIR，避免刪掉使用者自己的檔案），並刪除上游已移除的 lib\*.ps1。`local.json` 的 `"autoUpdate": false` 可關閉。
+  smoke 用本機的假上游 repo 測 git 更新；zip 更新只能連 GitHub 手動測。
 - 方向鍵選單需要真正的終端機，smoke 只測得到編號模式；方向鍵模式要手動測。
 - `README.md`、`.gitattributes`、git repo（遠端 `https://github.com/zoosewu/win-sync`，分支 `main`）。
 

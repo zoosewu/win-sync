@@ -56,14 +56,15 @@ function Invoke-Menu {
         if (-not $ctx) { $script:NoSummary = $false; return }
         $unset = @(Get-List $ctx.Config 'links' | Where-Object { (Get-LinkState $ctx $_) -eq 'unset' }).Count
         $locate = if ($unset) { "設定這台電腦的位置（$unset 項尚未設定）" } else { '設定這台電腦的位置' }
-        $choice = Select-Menu "win-sync（這台電腦：$env:COMPUTERNAME）" @('新增備份', $locate, '立即同步', '檢查狀態', '結束')
-        if ($choice -lt 0 -or $choice -eq 4) { return }
+        $choice = Select-Menu "win-sync（這台電腦：$env:COMPUTERNAME）" @('新增備份', $locate, '立即同步', '檢查狀態', '檢查更新', '結束')
+        if ($choice -lt 0 -or $choice -eq 5) { return }
         try {
             switch ($choice) {
                 0 { Invoke-MenuAdd $ctx }
                 1 { Invoke-MenuLocate $ctx }
                 2 { Invoke-SyncCore $ctx -Interactive; Complete-MenuAction }
                 3 { Invoke-SyncCore $ctx -DryRun; Complete-MenuAction }
+                4 { Update-Self; Complete-MenuAction }
             }
         } catch {
             Write-Log "ERROR $($_ | Out-String)"

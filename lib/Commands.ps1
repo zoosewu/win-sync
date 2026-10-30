@@ -116,6 +116,8 @@ function Invoke-SyncCore {
 }
 
 function Invoke-Sync {
+    # 新版在下次執行時才生效，這次仍用目前載入的程式同步
+    if ($script:Background) { Invoke-AutoUpdate }
     $ctx = Get-Context
     if ($ctx) { Invoke-SyncCore $ctx }
 }
@@ -156,6 +158,8 @@ function Invoke-Add([string[]]$Arguments) {
     Sync-Links $ctx -Only $existing.name
 }
 
+function Invoke-Update { Update-Self }
+
 function Invoke-Apps {
     $ctx = Get-Context
     if ($ctx) { Install-MissingApps $ctx }
@@ -185,6 +189,8 @@ win-sync：用 Dropbox 同步 Windows 設定、App 設定檔、Documents 與軟�
                              （機碼可直接從登錄編輯程式的網址列複製）
   apps                       安裝 apps.json 中尚未安裝的軟體
   export-apps                把這台電腦已安裝的軟體併入 apps.json
+  update                     從 GitHub 更新 win-sync 本身（登入時的背景同步每天也會自動檢查；
+                             在 local.json 加上 "autoUpdate": false 可關閉自動更新）
   help                       顯示本說明
 
 資料：Dropbox\WinSync（同步）、工具資料夾\local.json（這台電腦的位置，不同步）

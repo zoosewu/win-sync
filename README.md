@@ -124,9 +124,20 @@ win-sync（這台電腦：MY-LAPTOP）
 | `win-sync add-reg <機碼> <值名稱> [說明]` | 把這台電腦目前的某個 registry 值加入同步。機碼可以直接從登錄編輯程式的網址列複製。 |
 | `win-sync apps` | 安裝 `apps.json` 裡尚未安裝的軟體。 |
 | `win-sync export-apps` | 把這台電腦已安裝的軟體併入 `apps.json`。 |
+| `win-sync update` | 從 GitHub 更新 win-sync 本身。 |
 | `win-sync help` | 顯示說明。 |
 
 背景同步有待辦時，會跳出 Windows 通知，請執行 `win-sync status` 查看步驟。執行紀錄在 `%LOCALAPPDATA%\win-sync\win-sync.log`。
+
+## 自動更新
+
+登入後的背景同步每天會檢查一次 GitHub 上有沒有新版，有的話自動更新，下次執行時生效。也可以用 `win-sync update` 或選單的「檢查更新」手動更新。
+
+- **用 git clone 安裝的**：用 `git fetch` + fast-forward 更新。工具資料夾有未提交的修改、不在 `main` 分支、或有尚未推送的 commit 時會跳過，不會蓋掉你的修改。
+- **下載 zip 安裝的**：下載最新版覆蓋，保留 `local.json`。目前的版本記在工具資料夾的 `.win-sync-version`。
+- 不想自動更新：在 `local.json` 加上 `"autoUpdate": false`（`win-sync update` 仍可手動更新）。
+
+背景更新失敗（例如剛登入還沒有網路）只會寫進紀錄，不會跳出通知。
 
 ## config.json 格式
 

@@ -25,6 +25,7 @@ try {
         'add-reg'     { Invoke-AddReg $Arguments }
         'apps'        { Invoke-Apps }
         'export-apps' { Invoke-ExportApps }
+        'update'      { Invoke-Update }
         default       { Show-Help }
     }
 } catch {
