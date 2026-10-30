@@ -1,4 +1,5 @@
 ﻿# App 設定檔連結（Mackup 模式）：設定本體放在 Dropbox\WinSync\files\<name>，原位置換成連結
+# config.json 的 links 只記錄名稱、標題、描述（會同步）；這台電腦的位置記在 local.json（不同步）
 
 function New-SymbolicFileLink([string]$Link, [string]$Target) {
     if (-not ('WinSync.Native' -as [type])) {
@@ -49,7 +50,7 @@ function Test-SameFile([string]$A, [string]$B) {
         ((Get-FileHash -LiteralPath $A).Hash -eq (Get-FileHash -LiteralPath $B).Hash)
 }
 
-function Find-Backups([string]$Local, [string]$Name, [string]$FilesDir) {
+function Find-Backups([string]$Local, [string]$Name, [string]$Label, [string]$FilesDir) {
     $hits = @()
     $parent = Split-Path $Local
     if (Test-Path -LiteralPath $parent) {
@@ -59,103 +60,161 @@ function Find-Backups([string]$Local, [string]$Name, [string]$FilesDir) {
         $hits += @(Get-ChildItem -LiteralPath $FilesDir -Force -Filter "$Name.win-sync-bak-*")
     }
     if ($hits.Count) {
-        Add-Todo "$Name：有 $($hits.Count) 份舊版備份，確認不需要後可刪除" @($hits | ForEach-Object { $_.FullName })
+        Add-Todo "$Label：有 $($hits.Count) 份舊版備份，確認不需要後可刪除" @($hits | ForEach-Object { $_.FullName })
     }
 }
 
-function Sync-Links {
-    param($Ctx, [switch]$DryRun, [switch]$Interactive)
-    Write-Step 'App 設定檔連結'
-    $links = @(Get-List $Ctx.Config 'links')
-    if (-not $links.Count) { Write-Skip '尚未設定任何連結（用 win-sync add <路徑> 新增）'; return }
-    $filesDir = Join-Path $Ctx.Data 'files'
-    foreach ($l in $links) {
-        try {
-            Sync-OneLink $l $filesDir -DryRun:$DryRun -Interactive:$Interactive
-        } catch {
-            Write-Warn "$($l.name)：$($_.Exception.Message)"
-            Add-Todo "$($l.name) 同步失敗：$($_.Exception.Message)" @(
-                '若該 App 正在執行，先關閉它再執行 win-sync sync',
-                '若是權限問題，以系統管理員執行 win-sync init（會開啟開發人員模式）')
+# ---------- 備份項目與這台電腦的位置 ----------
+
+function Get-LinkLabel($Link) {
+    if ($Link.title) { return $Link.title }
+    $Link.name
+}
+
+function Get-LinkStore($Ctx, $Link) { Join-Path (Join-Path $Ctx.Data 'files') $Link.name }
+
+# 這台電腦的狀態：set（已設定位置）、ignored（這台不使用）、unset（尚未設定）
+function Get-LinkState($Ctx, $Link) {
+    $p = $Ctx.Local.links.PSObject.Properties[$Link.name]
+    if (-not $p) { return 'unset' }
+    if ($p.Value) { return 'set' }
+    'ignored'
+}
+
+function Get-LinkPath($Ctx, $Link) {
+    $p = $Ctx.Local.links.PSObject.Properties[$Link.name]
+    if ($p -and $p.Value) { return Expand-PathVars $p.Value }
+    $null
+}
+
+# 這台電腦上已指向 $Path 的備份項目
+function Find-LinkByPath($Ctx, [string]$Path) {
+    @(Get-List $Ctx.Config 'links' | Where-Object { $p = Get-LinkPath $Ctx $_; $p -and (Test-SamePath $p $Path) })[0]
+}
+
+# 位置和 Dropbox 上的內容類型（檔案／資料夾）不同時丟出錯誤
+function Assert-LinkType($Ctx, $Link, [string]$Path) {
+    $store = Get-LinkStore $Ctx $Link
+    if (-not (Test-Path -LiteralPath $Path) -or -not (Test-Path -LiteralPath $store)) { return }
+    $storeIsDir = Test-Path -LiteralPath $store -PathType Container
+    if ($storeIsDir -ne (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "$(Get-LinkLabel $Link) 在 Dropbox 上是$(if ($storeIsDir) { '資料夾' } else { '檔案' })，和 $Path 的類型不同"
+    }
+}
+
+# 記錄這台電腦的位置（$Path 為 $null 表示這台不使用），並提醒舊位置留下的連結
+function Set-LinkLocation($Ctx, $Link, $Path) {
+    $old = Get-LinkPath $Ctx $Link
+    $Ctx.Local.links | Add-Member -NotePropertyName $Link.name -NotePropertyValue $Path -Force
+    Save-LocalState $Ctx.Local
+    if ($old -and -not ($Path -and (Test-SamePath $old $Path))) {
+        $item = Get-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+        if ($item -and $item.LinkType) {
+            Add-Todo "$(Get-LinkLabel $Link)：舊位置還留著連結" @("$old 仍指向 Dropbox，若不再使用可以刪除（只會刪掉連結，不影響 Dropbox 上的內容）")
         }
     }
 }
 
-# 這台電腦的本機位置：machines 有這台電腦名稱就用它，否則用 path；都沒有回傳 $null
-function Get-LinkPath($Link) {
-    $m = if ($Link.machines) { $Link.machines.PSObject.Properties[$env:COMPUTERNAME] } else { $null }
-    if ($m -and $m.Value) { return Expand-PathVars $m.Value }
-    if ($Link.path) { return Expand-PathVars $Link.path }
-    $null
+# 新增備份項目：標題、描述寫進 config.json（同步），位置寫進 local.json（只在這台）
+function New-Backup($Ctx, [string]$Path, [string]$Title, [string]$Description, [string]$Name) {
+    if (-not $Name) { $Name = New-LinkName $Ctx $Path }
+    if (-not $Title) { $Title = $Name }
+    $entry = [pscustomobject]@{ name = $Name; title = $Title; description = $Description }
+    # 檔案記下原本的檔名，別台電腦指定資料夾時可以沿用
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        $entry | Add-Member -NotePropertyName fileName -NotePropertyValue (Split-Path $Path -Leaf)
+    }
+    Set-ConfigList $Ctx.Config 'links' (@(Get-List $Ctx.Config 'links') + $entry)
+    Write-Json $Ctx.ConfigPath $Ctx.Config
+    Set-LinkLocation $Ctx $entry $Path
+    Write-Act "已加入備份：$Title → $Path"
+    $entry
 }
 
-# 記錄這台電腦的位置；和預設 path 相同時移除這台的設定
-function Set-LinkMachinePath($Link, [string]$Path) {
-    if ($Link.machines) {
-        $Link.machines.PSObject.Properties.Remove($env:COMPUTERNAME)
-    } else {
-        $Link | Add-Member -NotePropertyName machines -NotePropertyValue ([pscustomobject]@{}) -Force
+# ---------- 同步 ----------
+
+function Sync-Links {
+    param($Ctx, [switch]$DryRun, [switch]$Interactive, [string[]]$Only)
+    Write-Step 'App 設定檔連結'
+    $links = @(Get-List $Ctx.Config 'links')
+    if (-not $links.Count) { Write-Skip '尚未設定任何備份（執行 win-sync 開啟選單新增）'; return }
+    $filesDir = Join-Path $Ctx.Data 'files'
+    $unset = @()
+    foreach ($l in $links) {
+        if ($Only -and $Only -notcontains $l.name) { continue }
+        $label = Get-LinkLabel $l
+        $state = Get-LinkState $Ctx $l
+        if ($state -eq 'unset') { Write-Skip "$label：尚未設定這台電腦的位置"; $unset += $l; continue }
+        if ($state -eq 'ignored') { Write-Skip "$label：這台電腦不使用"; continue }
+        try {
+            Sync-OneLink $Ctx $l $filesDir -DryRun:$DryRun -Interactive:$Interactive
+        } catch {
+            Write-Warn "$label：$($_.Exception.Message)"
+            Add-Todo "$label 同步失敗：$($_.Exception.Message)" @(
+                '若該 App 正在執行，先關閉它再執行 win-sync sync',
+                '若是權限問題，以系統管理員執行 win-sync init（會開啟開發人員模式）')
+        }
     }
-    if ($Link.path -and (Test-SamePath (Expand-PathVars $Link.path) $Path)) { return }
-    $Link.machines | Add-Member -NotePropertyName $env:COMPUTERNAME -NotePropertyValue (Compress-PathVars $Path)
+    if ($unset.Count) {
+        $steps = @($unset | ForEach-Object { if ($_.description) { "$(Get-LinkLabel $_)：$($_.description)" } else { Get-LinkLabel $_ } })
+        $steps += '執行 win-sync 開啟選單 →「設定這台電腦的位置」（不需要的選「這台電腦不使用」）'
+        Add-Todo "有 $($unset.Count) 項備份尚未設定這台電腦的位置" $steps
+    }
 }
 
 function Sync-OneLink {
-    param($Link, [string]$FilesDir, [switch]$DryRun, [switch]$Interactive)
+    param($Ctx, $Link, [string]$FilesDir, [switch]$DryRun, [switch]$Interactive)
     $name     = $Link.name
-    $local    = Get-LinkPath $Link
-    if (-not $local) {
-        Write-Skip "$name：這台電腦（$env:COMPUTERNAME）沒有設定位置（要同步的話執行 win-sync add <路徑> $name）"
-        return
-    }
+    $label    = Get-LinkLabel $Link
+    $local    = Get-LinkPath $Ctx $Link
     $store    = Join-Path $FilesDir $name
     $item     = Get-Item -LiteralPath $local -Force -ErrorAction SilentlyContinue
     $hasStore = Test-Path -LiteralPath $store
 
-    if ($DryRun) { Find-Backups $local $name $FilesDir }
+    if ($DryRun) { Find-Backups $local $name $label $FilesDir }
 
     if ($item -and $item.LinkType) {
         $target = @($item.Target)[0]
-        if (Test-SamePath $target $store) { Write-Ok $name; return }
-        if ($DryRun) { Write-Plan "$name：重新連結（目前指向 $target）"; return }
+        if (Test-SamePath $target $store) { Write-Ok $label; return }
+        if ($DryRun) { Write-Plan "$label：重新連結（目前指向 $target）"; return }
         Remove-Link $item
         $item = $null
     }
 
     if (-not $item -and -not $hasStore) {
-        Write-Skip "$name：本機與 Dropbox 都沒有（App 尚未安裝或尚未產生設定）"
+        Write-Skip "$label：本機與 Dropbox 都沒有（App 尚未安裝或尚未產生設定）"
         return
     }
 
     if ($item -and -not $hasStore) {
         # 第一台：把本機設定搬進 Dropbox
-        if ($DryRun) { Write-Plan "$name：把本機設定搬進 Dropbox 並建立連結"; return }
+        if ($DryRun) { Write-Plan "$label：把本機設定搬進 Dropbox 並建立連結"; return }
         if (-not (Test-Path -LiteralPath $FilesDir)) { New-Item -ItemType Directory -Force $FilesDir | Out-Null }
         Move-Path $local $store
-        Write-Act "$name：本機設定已搬進 Dropbox"
+        Write-Act "$label：本機設定已搬進 Dropbox"
     } elseif ($item) {
         # 已在使用的電腦：兩邊都有
-        if ($DryRun) { Write-Plan "$name：本機與 Dropbox 都有，改用 Dropbox 版本（本機版備份）"; return }
+        if ($DryRun) { Write-Plan "$label：本機與 Dropbox 都有，改用 Dropbox 版本（本機版備份）"; return }
         if (Test-SameFile $local $store) {
             Remove-Item -LiteralPath $local -Force
-        } elseif ($Interactive -and (Confirm-Ask "  [??] $name：本機與 Dropbox 版本不同，要改用「本機」版本嗎？（n = 用 Dropbox 版本）" $false)) {
+        } elseif ($Interactive -and (Confirm-Ask "  [??] $label：本機與 Dropbox 版本不同，要改用「本機」版本嗎？（n = 用 Dropbox 版本）" $false)) {
             $bak = Backup-Path $store
             Move-Path $local $store
-            Add-Todo "$name：已改用本機版本" @("Dropbox 上的舊版備份在：$bak", '確認不需要後可刪除')
+            Add-Todo "$label：已改用本機版本" @("Dropbox 上的舊版備份在：$bak", '確認不需要後可刪除')
         } else {
             $bak = Backup-Path $local
-            Add-Todo "$name：本機版本與 Dropbox 不同，已改用 Dropbox 版本" @(
+            Add-Todo "$label：本機版本與 Dropbox 不同，已改用 Dropbox 版本" @(
                 "本機舊版備份在：$bak",
                 "若有需要的內容，手動合併到 $store",
                 '確認不需要後可刪除備份')
         }
     } elseif ($DryRun) {
-        Write-Plan "$name：建立連結"
+        Write-Plan "$label：建立連結"
         return
     }
 
     New-Link $local $store
-    Write-Act "$name：已連結 → $store"
+    Write-Act "$label：已連結 → $store"
 }
 
 # 依路徑產生 files\ 底下的名稱；撞名時加上上層資料夾名

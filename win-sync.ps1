@@ -4,7 +4,7 @@
   執行 win-sync help 查看所有指令。
 #>
 param(
-    [Parameter(Position = 0)][string]$Command = 'help',
+    [Parameter(Position = 0)][string]$Command = 'menu',
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)][string[]]$Arguments = @(),
     [switch]$Background,   # 由登入排程呼叫：不輸出到畫面，有待辦時改發 Windows 通知
     [switch]$PauseAtEnd    # 自我提升權限開出的新視窗用：結束前停住讓使用者看結果
@@ -17,6 +17,7 @@ $script:Background = $Background.IsPresent
 
 try {
     switch ($Command.ToLower()) {
+        'menu'        { Invoke-Menu }
         'init'        { Invoke-Init }
         'sync'        { Invoke-Sync }
         'status'      { Invoke-Status }

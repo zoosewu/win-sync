@@ -77,6 +77,19 @@ function New-DataFolder($Loc) {
         $cfg.documents = $null
     }
 
+    # 範本的 path 只是第一台電腦的預設位置：存在的才加入，位置寫進 local.json，不寫進 config.json
+    $local = Read-LocalState
+    $links = @(foreach ($l in Get-List $cfg 'links') {
+        $p = Expand-PathVars $l.path
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        $local.links | Add-Member -NotePropertyName $l.name -NotePropertyValue $p -Force
+        $entry = [pscustomobject]@{ name = $l.name; title = $l.title; description = $l.description }
+        if (Test-Path -LiteralPath $p -PathType Leaf) { $entry | Add-Member -NotePropertyName fileName -NotePropertyValue (Split-Path $p -Leaf) }
+        $entry
+    })
+    Set-ConfigList $cfg 'links' $links
+    Save-LocalState $local
+
     # 範本列出的 Windows 設定改記錄這台電腦目前的值，這台不會被改動
     $captured = @(foreach ($r in Get-List $cfg 'registry') {
         $cur = Get-RegValue $r.key $r.name
@@ -117,43 +130,30 @@ function Invoke-Add([string[]]$Arguments) {
     if (-not $Arguments.Count -or -not $Arguments[0]) {
         Write-Host '用法：win-sync add <檔案或資料夾路徑> [名稱]'
         Write-Host '例如：win-sync add "%USERPROFILE%\.gitconfig"'
-        Write-Host '同一個設定在這台電腦的位置不同時，指定已存在的名稱：win-sync add "D:\Tools\A\config.ini" A-config'
+        Write-Host '別台電腦已加入的備份，指定它的名稱就會記錄這台電腦的位置：win-sync add "D:\Tools\A\config.ini" config.ini'
+        Write-Host '也可以直接執行 win-sync 開啟選單操作'
         $script:NoSummary = $true
         return
     }
     $ctx = Get-Context
     if (-not $ctx) { return }
-    $full  = [IO.Path]::GetFullPath((Expand-PathVars $Arguments[0]))
-    $links = @(Get-List $ctx.Config 'links')
-    $same  = @($links | Where-Object { $p = Get-LinkPath $_; $p -and (Test-SamePath $p $full) })
-    if ($same.Count) { Write-Warn "已在同步清單中：$full（$($same[0].name)）"; return }
+    $full = [IO.Path]::GetFullPath((Expand-PathVars $Arguments[0]))
+    $same = Find-LinkByPath $ctx $full
+    if ($same) { Write-Warn "已在備份清單中：$full（$(Get-LinkLabel $same)）"; return }
     if (-not (Test-Path -LiteralPath $full)) { Write-Warn "目前不存在：$full（之後產生時，下次同步會自動連結）" }
 
     $existing = $null
-    if ($Arguments.Count -ge 2) { $existing = @($links | Where-Object { $_.name -ieq $Arguments[1] })[0] }
+    if ($Arguments.Count -ge 2) { $existing = @(Get-List $ctx.Config 'links' | Where-Object { $_.name -ieq $Arguments[1] })[0] }
     if ($existing) {
         # 已有同名項目：只記錄這台電腦的位置，內容沿用 Dropbox 上的那一份
-        $store = Join-Path (Join-Path $ctx.Data 'files') $existing.name
-        if ((Test-Path -LiteralPath $full) -and (Test-Path -LiteralPath $store) -and
-            ((Test-Path -LiteralPath $full -PathType Container) -ne (Test-Path -LiteralPath $store -PathType Container))) {
-            throw "$($existing.name) 在 Dropbox 上是$(if (Test-Path -LiteralPath $store -PathType Container) { '資料夾' } else { '檔案' })，和 $full 的類型不同"
-        }
-        $old = Get-LinkPath $existing
-        Set-LinkMachinePath $existing $full
-        Write-Json $ctx.ConfigPath $ctx.Config
-        Write-Act "已記錄 $($existing.name) 在這台電腦（$env:COMPUTERNAME）的位置：$full"
-        $oldItem = if ($old) { Get-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue } else { $null }
-        if ($oldItem -and $oldItem.LinkType) {
-            Add-Todo "$($existing.name)：舊位置還留著連結" @("$old 仍指向 Dropbox，若不再使用可以刪除（只會刪掉連結，不影響 Dropbox 上的內容）")
-        }
+        Assert-LinkType $ctx $existing $full
+        Set-LinkLocation $ctx $existing $full
+        Write-Act "已記錄 $(Get-LinkLabel $existing) 在這台電腦的位置：$full"
     } else {
-        $name  = if ($Arguments.Count -ge 2) { $Arguments[1] } else { New-LinkName $ctx $full }
-        $entry = [pscustomobject]@{ name = $name; path = (Compress-PathVars $full) }
-        Set-ConfigList $ctx.Config 'links' ($links + $entry)
-        Write-Json $ctx.ConfigPath $ctx.Config
-        Write-Act "已加入同步清單：$name → $($entry.path)"
+        $name = if ($Arguments.Count -ge 2) { $Arguments[1] } else { $null }
+        $existing = New-Backup $ctx $full $name '' $name
     }
-    Sync-Links $ctx
+    Sync-Links $ctx -Only $existing.name
 }
 
 function Invoke-Apps {
@@ -173,12 +173,13 @@ win-sync：用 Dropbox 同步 Windows 設定、App 設定檔、Documents 與軟�
 
 用法：win-sync <指令> [參數]
 
-  init                       新電腦或第一次使用。檢查／安裝 Dropbox、開啟開發人員模式、
+  （不加指令）                開啟互動式選單：新增備份、設定這台電腦的位置、同步
+  init                      新電腦或第一次使用。檢查／安裝 Dropbox、開啟開發人員模式、
                              設定登入自動同步、套用所有設定、安裝軟體（會要求系統管理員）
   status                     檢查狀態並列出需要你處理的事，不做任何修改
   sync                       立即同步（每次登入也會自動執行）
-  add <路徑> [名稱]           把 App 設定檔或資料夾加入同步；名稱已存在時，
-                             改為記錄它在這台電腦的位置（各電腦位置不同時用）
+  add <路徑> [名稱]           把 App 設定檔或資料夾加入備份；名稱已存在時，
+                             改為記錄它在這台電腦的位置
   add-reg <機碼> <值名稱> [說明]
                              把這台電腦目前的某個 Windows 設定加入同步
                              （機碼可直接從登錄編輯程式的網址列複製）
@@ -186,6 +187,7 @@ win-sync：用 Dropbox 同步 Windows 設定、App 設定檔、Documents 與軟�
   export-apps                把這台電腦已安裝的軟體併入 apps.json
   help                       顯示本說明
 
-資料：Dropbox\WinSync      紀錄：%LOCALAPPDATA%\win-sync\win-sync.log
+資料：Dropbox\WinSync（同步）、工具資料夾\local.json（這台電腦的位置，不同步）
+紀錄：%LOCALAPPDATA%\win-sync\win-sync.log
 '@
 }

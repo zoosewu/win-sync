@@ -36,7 +36,7 @@ flowchart LR
 | Documents | 把「文件」資料夾的位置改指向 Dropbox 裡的資料夾。 |
 | 軟體 | `apps.json` 是 `winget export` 的格式，缺少的軟體用 `winget import` 安裝。 |
 
-工具（本 repo）和資料（`Dropbox\WinSync`）是分開的：工具用 git 管理，資料靠 Dropbox 同步，不進 git。
+工具（本 repo）和資料（`Dropbox\WinSync`）是分開的：工具用 git 管理，資料靠 Dropbox 同步，不進 git。每台電腦各自的路徑則記在工具資料夾的 `local.json`，既不同步也不進 git。
 
 ## 安裝
 
@@ -69,8 +69,9 @@ init 會跳出 UAC 要求系統管理員權限（用來開啟開發人員模式�
 
 1. 安裝並登入 Dropbox，**等 `WinSync` 資料夾同步下來**。有用「選擇性同步」的話，記得勾選它。
 2. 安裝工具，執行 `win-sync init`。
-3. init 會套用所有 Windows 設定、建立連結、詢問要不要安裝缺少的軟體。
-4. 依最後的待辦清單完成剩下的事（通常是登出再登入）。
+3. init 會套用所有 Windows 設定、詢問要不要安裝缺少的軟體。
+4. 執行 `win-sync` 開啟選單 →「設定這台電腦的位置」，替每個備份指定這台電腦的路徑（或選「這台電腦不使用」）。
+5. 依最後的待辦清單完成剩下的事（通常是登出再登入）。
 
 ### 已經在用的電腦
 
@@ -80,30 +81,46 @@ init 會跳出 UAC 要求系統管理員權限（用來開啟開發人員模式�
 - 內容不同：init 會問你要用哪一版。沒選的那一版會備份成 `<原檔名>.win-sync-bak-<時間>`，確認不需要後再刪除。
 - 背景同步時不會詢問，一律用 Dropbox 版本，本機版備份。
 
-### 同一個設定檔，在各台電腦的位置不同
+## 互動式選單
 
-例如軟體 A 在桌機裝在 `C:\Program Files\A`，在筆電是免安裝版放在 `D:\Tools\A`：
+直接執行 `win-sync`（不加指令）會開啟選單，用 ↑↓ 選擇、Enter 確定、Esc 返回：
 
-```powershell
-# 桌機：加入同步，取名為 A-config
-win-sync add "C:\Program Files\A\config.ini" A-config
-
-# 筆電：指定同一個名稱，記錄筆電的位置
-win-sync add "D:\Tools\A\config.ini" A-config
+```
+win-sync（這台電腦：MY-LAPTOP）
+  > 新增備份
+    設定這台電腦的位置（2 項尚未設定）
+    立即同步
+    檢查狀態
+    結束
 ```
 
-第二個指令會把筆電的位置記在 `machines` 底下（以電腦名稱 `%COMPUTERNAME%` 區分），兩台電腦連到 Dropbox 上的同一份檔案。筆電原本的檔案若內容不同，會備份成 `.win-sync-bak-*`，改用 Dropbox 版本。
+- **新增備份**：輸入路徑（可以直接把檔案拖進視窗），再輸入標題和描述。
+- **設定這台電腦的位置**：列出所有備份和它們在這台電腦的狀態（已設定／未設定／不使用）。選一項後可以：
+  - **指定位置**：輸入這台電腦的路徑，立即連結。如果備份的是檔案、而你指定的是資料夾，會放進那個資料夾，檔名沿用原本的。
+  - **這台電腦不使用**：之後不再提醒。
 
-沒有記錄位置的電腦會沿用 `path`。如果某個項目只有 `machines`、沒有 `path`，沒列出的電腦就會跳過它。
+### 各台電腦的位置不同
+
+每個備份分成兩部分存放：
+
+| 內容 | 存在哪裡 | 會同步嗎 |
+|---|---|---|
+| 名稱、標題、描述 | `Dropbox\WinSync\config.json` | 會，每台電腦都看得到有哪些備份 |
+| 這台電腦的位置 | 工具資料夾裡的 `local.json` | 不會，也不進 git；只要工具資料夾還在就保留 |
+
+所以在桌機新增「軟體 A 設定」（`C:\Program Files\A\config.ini`）之後，筆電會在待辦裡看到「有 1 項備份尚未設定這台電腦的位置」。在筆電開選單 →「設定這台電腦的位置」→ 選它 → 輸入 `D:\Tools\A`，兩台電腦就會連到 Dropbox 上的同一份檔案。筆電原本的檔案若內容不同，會詢問要用哪一版，沒選的那一版會備份。
+
+不用選單的話，也可以用指令：`win-sync add "D:\Tools\A\config.ini" <備份名稱>`（名稱見 `config.json`）。
 
 ## 指令
 
 | 指令 | 說明 |
 |---|---|
+| `win-sync` | 開啟互動式選單。 |
 | `win-sync init` | 新電腦或第一次使用：檢查／安裝 Dropbox、開啟開發人員模式、設定登入自動同步、加入 PATH、套用所有設定、安裝軟體。需要系統管理員。 |
 | `win-sync status` | 檢查狀態並列出需要處理的事，**不做任何修改**。也會顯示上次背景同步留下的待辦。 |
 | `win-sync sync` | 立即同步。每次登入 2 分鐘後也會自動在背景執行。 |
-| `win-sync add <路徑> [名稱]` | 把 App 設定檔或資料夾加入同步，並立刻連結。例如 `win-sync add "%APPDATA%\Code\User\keybindings.json"`。名稱已存在時，改為記錄它在這台電腦的位置。 |
+| `win-sync add <路徑> [名稱]` | 把 App 設定檔或資料夾加入備份，並立刻連結。例如 `win-sync add "%APPDATA%\Code\User\keybindings.json"`。名稱已存在時，改為記錄它在這台電腦的位置。 |
 | `win-sync add-reg <機碼> <值名稱> [說明]` | 把這台電腦目前的某個 registry 值加入同步。機碼可以直接從登錄編輯程式的網址列複製。 |
 | `win-sync apps` | 安裝 `apps.json` 裡尚未安裝的軟體。 |
 | `win-sync export-apps` | 把這台電腦已安裝的軟體併入 `apps.json`。 |
@@ -119,12 +136,7 @@ win-sync add "D:\Tools\A\config.ini" A-config
 {
   "documents": "Documents",
   "links": [
-    { "name": "gitconfig", "path": "%USERPROFILE%\\.gitconfig" },
-    {
-      "name": "A-config",
-      "path": "C:\\Program Files\\A\\config.ini",
-      "machines": { "MY-LAPTOP": "D:\\Tools\\A\\config.ini" }
-    }
+    { "name": "gitconfig", "title": "Git 設定", "description": "使用者名稱、email、alias 等全域設定", "fileName": ".gitconfig" }
   ],
   "registry": [
     {
@@ -142,8 +154,21 @@ win-sync add "D:\Tools\A\config.ini" A-config
 |---|---|
 | `documents` | Documents 要放在 Dropbox 裡的哪個資料夾（相對於 Dropbox 根目錄，也可以是絕對路徑）。`null` 表示不處理 Documents。 |
 | `links[].name` | 在 `files\` 底下的名稱，不能重複。 |
-| `links[].path` | 預設的本機位置，可使用 `%USERPROFILE%`、`%APPDATA%`、`%LOCALAPPDATA%` 等環境變數，讓不同使用者名稱的電腦都能用。 |
-| `links[].machines` | 選填。`{ "電腦名稱": "路徑" }`，個別電腦的位置和 `path` 不同時使用，優先於 `path`。電腦名稱就是 `%COMPUTERNAME%`，改了電腦名稱要重新用 `add` 記錄。 |
+| `links[].title`、`description` | 選單和待辦裡顯示的標題與描述。 |
+| `links[].fileName` | 備份的是檔案時，原本的檔名。別台電腦指定資料夾時會沿用。 |
+
+這台電腦的位置記在工具資料夾的 `local.json`（不同步、不進 git）：
+
+```json
+{
+  "links": {
+    "gitconfig": "C:\\Users\\me\\.gitconfig",
+    "some-app": null
+  }
+}
+```
+
+值是 `null` 代表這台電腦不使用；沒有列出的代表尚未設定，同步時會提醒。重新 clone 工具的話，`local.json` 不會跟著來，要重新設定一次位置。
 | `registry[].label` | 顯示用的說明，可省略。 |
 | `registry[].key` | `HKCU:\...` 或 `HKLM:\...`。 |
 | `registry[].type` | `DWord`、`QWord`、`String`、`ExpandString`、`MultiString`、`Binary`。 |

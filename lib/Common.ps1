@@ -175,5 +175,25 @@ function Get-Context {
             '第一台電腦：執行 win-sync init，回答「是第一台」來建立設定')
         return $null
     }
-    [pscustomobject]@{ Root = $loc.Root; Data = $loc.Data; ConfigPath = $cfg; Config = (Read-Json $cfg) }
+    [pscustomobject]@{ Root = $loc.Root; Data = $loc.Data; ConfigPath = $cfg; Config = (Read-Json $cfg); Local = (Read-LocalState) }
 }
+
+# ---------- 本機資料 ----------
+# 各備份在這台電腦的位置只存在工具資料夾的 local.json：不進 Dropbox，也不進 git（.gitignore）
+# links 的值是路徑；null 表示這台電腦不使用；沒有該名稱表示尚未設定
+
+function Get-LocalStatePath {
+    # WINSYNC_LOCAL 用於測試
+    if ($env:WINSYNC_LOCAL) { return $env:WINSYNC_LOCAL }
+    Join-Path $script:RepoRoot 'local.json'
+}
+
+function Read-LocalState {
+    $p = Get-LocalStatePath
+    $s = if (Test-Path -LiteralPath $p) { Read-Json $p } else { $null }
+    if (-not $s) { $s = [pscustomobject]@{} }
+    if (-not $s.links) { $s | Add-Member -NotePropertyName links -NotePropertyValue ([pscustomobject]@{}) -Force }
+    $s
+}
+
+function Save-LocalState($State) { Write-Json (Get-LocalStatePath) $State }

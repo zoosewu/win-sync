@@ -1,7 +1,7 @@
 {
   "documents": "Documents",
   "links": [
-    { "name": "gitconfig", "path": "%USERPROFILE%\\.gitconfig" }
+    { "name": "gitconfig", "title": "Git 設定", "description": "使用者名稱、email、alias 等全域設定", "path": "%USERPROFILE%\\.gitconfig" }
   ],
   "registry": [
     { "label": "App 深色模式", "key": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "name": "AppsUseLightTheme", "value": 0, "type": "DWord" },

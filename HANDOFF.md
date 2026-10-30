@@ -24,7 +24,11 @@
 - 注意：已載入的 `WinSync.Native` 型別無法在同一個 process 內重新定義。smoke 每次呼叫都開新 process，所以沒影響。
 - 小瑕疵（未修）：連結失敗後，status 會顯示「本機與 Dropbox 都有，改用 Dropbox 版本（本機版備份）」。實際上兩邊內容相同時只會刪除重連，不會產生備份。
 
-- 各電腦位置不同的設定檔：`links[].machines`（以 `%COMPUTERNAME%` 為 key，優先於 `path`）。`add <路徑> <已存在的名稱>` 會記錄這台電腦的位置，舊位置留下的連結會產生待辦提醒。
+- 互動式選單（`lib/Menu.ps1`，`win-sync` 不加指令時開啟）：新增備份（路徑、標題、描述）、設定這台電腦的位置（指定位置／這台不使用）、立即同步、檢查狀態。
+- 備份資料拆成兩部分（使用者要求）：`config.json` 的 links 只有 name／title／description／fileName（同步）；各電腦的位置在工具資料夾的 `local.json`（gitignore、不同步，值為 null 表示這台不使用）。
+  取代了先前的 `path`／`machines` 欄位，舊格式沒有做轉換（尚未有實際使用者）。templates 的 `path` 只用在第一台電腦建立資料時。
+- 尚未設定位置的備份會產生待辦，列出標題與描述。
+- 方向鍵選單需要真正的終端機，smoke 只測得到編號模式；方向鍵模式要手動測。
 - `README.md`、`.gitattributes`、git repo（遠端 `https://github.com/zoosewu/win-sync`，分支 `main`）。
 
 ## 尚未完成
