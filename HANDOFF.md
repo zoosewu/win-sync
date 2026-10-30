@@ -24,18 +24,11 @@
 - 注意：已載入的 `WinSync.Native` 型別無法在同一個 process 內重新定義。smoke 每次呼叫都開新 process，所以沒影響。
 - 小瑕疵（未修）：連結失敗後，status 會顯示「本機與 Dropbox 都有，改用 Dropbox 版本（本機版備份）」。實際上兩邊內容相同時只會刪除重連，不會產生備份。
 
-## 尚未完成
-- `README.md`（繁體中文）：概念與架構圖、三種情境（第一台、新電腦、現有電腦）、指令表、config.json 格式、限制（見下方）、FAQ（為什麼不需要 win-sync-data）。
-- `.gitattributes`（`*.ps1 text eol=crlf`）、`git init`。使用者沒有要求 commit，commit 前要先問。
-- 新電腦取得工具的方式：先 `winget install Git.Git` 再 clone，或下載 zip。若推上 GitHub，可考慮加一支 `bootstrap.ps1` 用 `irm | iex` 執行。
-- 可考慮新增 `remove <name>`：把連結還原成本機檔案，並從 config 移除。
+- `README.md`、`.gitattributes`、git repo（遠端 `https://github.com/zoosewu/win-sync`，分支 `main`）。
 
-## 要寫進 README 的限制
-- registry 是單向、宣告式的：在「設定」App 改的東西不會自動回寫，要用 `win-sync add-reg` 記錄。
-- 同一個 App 不要在兩台電腦同時開著，否則 Dropbox 會產生 conflicted copy（status 會偵測）。
-- 有些 App 存檔時會「寫暫存檔再改名」，把連結換成實體檔案；下次同步時會備份成 `.win-sync-bak-*` 再重新連結。
-- 不要同步快取、資料庫、私鑰；有內建同步功能的 App（VS Code、瀏覽器）用它自己的。
-- HKLM 設定需要系統管理員，背景同步會失敗並產生待辦。
+## 尚未完成
+- 加一支 `bootstrap.ps1`，讓新電腦用 `irm https://raw.githubusercontent.com/zoosewu/win-sync/main/bootstrap.ps1 | iex` 一行完成安裝。目前 README 寫的是先裝 git 再 clone。
+- 可考慮新增 `remove <name>`：把連結還原成本機檔案，並從 config 移除。README 的 FAQ 目前寫的是手動步驟，做完要一起更新。
 
 ## 開發小抄
 重新加 BOM：
