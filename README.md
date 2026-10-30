@@ -80,6 +80,22 @@ init 會跳出 UAC 要求系統管理員權限（用來開啟開發人員模式�
 - 內容不同：init 會問你要用哪一版。沒選的那一版會備份成 `<原檔名>.win-sync-bak-<時間>`，確認不需要後再刪除。
 - 背景同步時不會詢問，一律用 Dropbox 版本，本機版備份。
 
+### 同一個設定檔，在各台電腦的位置不同
+
+例如軟體 A 在桌機裝在 `C:\Program Files\A`，在筆電是免安裝版放在 `D:\Tools\A`：
+
+```powershell
+# 桌機：加入同步，取名為 A-config
+win-sync add "C:\Program Files\A\config.ini" A-config
+
+# 筆電：指定同一個名稱，記錄筆電的位置
+win-sync add "D:\Tools\A\config.ini" A-config
+```
+
+第二個指令會把筆電的位置記在 `machines` 底下（以電腦名稱 `%COMPUTERNAME%` 區分），兩台電腦連到 Dropbox 上的同一份檔案。筆電原本的檔案若內容不同，會備份成 `.win-sync-bak-*`，改用 Dropbox 版本。
+
+沒有記錄位置的電腦會沿用 `path`。如果某個項目只有 `machines`、沒有 `path`，沒列出的電腦就會跳過它。
+
 ## 指令
 
 | 指令 | 說明 |
@@ -87,7 +103,7 @@ init 會跳出 UAC 要求系統管理員權限（用來開啟開發人員模式�
 | `win-sync init` | 新電腦或第一次使用：檢查／安裝 Dropbox、開啟開發人員模式、設定登入自動同步、加入 PATH、套用所有設定、安裝軟體。需要系統管理員。 |
 | `win-sync status` | 檢查狀態並列出需要處理的事，**不做任何修改**。也會顯示上次背景同步留下的待辦。 |
 | `win-sync sync` | 立即同步。每次登入 2 分鐘後也會自動在背景執行。 |
-| `win-sync add <路徑> [名稱]` | 把 App 設定檔或資料夾加入同步，並立刻連結。例如 `win-sync add "%APPDATA%\Code\User\keybindings.json"`。 |
+| `win-sync add <路徑> [名稱]` | 把 App 設定檔或資料夾加入同步，並立刻連結。例如 `win-sync add "%APPDATA%\Code\User\keybindings.json"`。名稱已存在時，改為記錄它在這台電腦的位置。 |
 | `win-sync add-reg <機碼> <值名稱> [說明]` | 把這台電腦目前的某個 registry 值加入同步。機碼可以直接從登錄編輯程式的網址列複製。 |
 | `win-sync apps` | 安裝 `apps.json` 裡尚未安裝的軟體。 |
 | `win-sync export-apps` | 把這台電腦已安裝的軟體併入 `apps.json`。 |
@@ -103,7 +119,12 @@ init 會跳出 UAC 要求系統管理員權限（用來開啟開發人員模式�
 {
   "documents": "Documents",
   "links": [
-    { "name": "gitconfig", "path": "%USERPROFILE%\\.gitconfig" }
+    { "name": "gitconfig", "path": "%USERPROFILE%\\.gitconfig" },
+    {
+      "name": "A-config",
+      "path": "C:\\Program Files\\A\\config.ini",
+      "machines": { "MY-LAPTOP": "D:\\Tools\\A\\config.ini" }
+    }
   ],
   "registry": [
     {
@@ -121,7 +142,8 @@ init 會跳出 UAC 要求系統管理員權限（用來開啟開發人員模式�
 |---|---|
 | `documents` | Documents 要放在 Dropbox 裡的哪個資料夾（相對於 Dropbox 根目錄，也可以是絕對路徑）。`null` 表示不處理 Documents。 |
 | `links[].name` | 在 `files\` 底下的名稱，不能重複。 |
-| `links[].path` | 本機位置，可使用 `%USERPROFILE%`、`%APPDATA%`、`%LOCALAPPDATA%` 等環境變數，讓不同使用者名稱的電腦都能用。 |
+| `links[].path` | 預設的本機位置，可使用 `%USERPROFILE%`、`%APPDATA%`、`%LOCALAPPDATA%` 等環境變數，讓不同使用者名稱的電腦都能用。 |
+| `links[].machines` | 選填。`{ "電腦名稱": "路徑" }`，個別電腦的位置和 `path` 不同時使用，優先於 `path`。電腦名稱就是 `%COMPUTERNAME%`，改了電腦名稱要重新用 `add` 記錄。 |
 | `registry[].label` | 顯示用的說明，可省略。 |
 | `registry[].key` | `HKCU:\...` 或 `HKLM:\...`。 |
 | `registry[].type` | `DWord`、`QWord`、`String`、`ExpandString`、`MultiString`、`Binary`。 |

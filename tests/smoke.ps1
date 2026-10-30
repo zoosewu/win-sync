@@ -24,7 +24,10 @@ Set-Content "$home2\appdir\a.txt" 'dir-v1'
 New-Item $regKey -Force | Out-Null
 @{
     documents = $null
-    links     = @(@{ name = 'app.conf'; path = "$home2\app.conf" }, @{ name = 'appdir'; path = "$home2\appdir" })
+    links     = @(
+        @{ name = 'app.conf'; path = "$home2\app.conf" },
+        @{ name = 'appdir'; path = "$home2\appdir" },
+        @{ name = 'elsewhere'; machines = @{ 'OTHER-PC' = "$home2\elsewhere" } })
     registry  = @(@{ label = '測試值'; key = $regKey; name = 'Value'; value = 42; type = 'DWord' })
 } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $data 'config.json') -Encoding UTF8
 
@@ -35,6 +38,7 @@ try {
     Assert ((Get-Item "$home2\appdir" -Force).LinkType -eq 'Junction') '資料夾換成 junction'
     Assert (Test-Path "$data\files\appdir\a.txt") '資料夾內容搬進 Dropbox'
     Assert ((Get-ItemProperty $regKey).Value -eq 42) 'registry 已套用'
+    Assert ($script:LastOutput -match 'elsewhere：這台電腦') '只設定別台電腦位置的項目被跳過'
     $fileLink = (Get-Item "$home2\app.conf" -Force -ErrorAction SilentlyContinue).LinkType
     if ($devMode) {
         Assert ($fileLink -eq 'SymbolicLink') '檔案換成 symlink'
@@ -57,6 +61,15 @@ try {
     Invoke-WinSync 'add', "$home2\newdir"
     Assert ((Get-Item "$home2\newdir" -Force).LinkType -eq 'Junction') 'add 後立即連結'
 
+    # add 已存在的名稱：記錄這台電腦的不同位置
+    New-Item -ItemType Directory "$home2\alt" | Out-Null
+    Invoke-WinSync 'add', "$home2\alt\newdir", 'newdir'
+    $cfg = Get-Content (Join-Path $data 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $entry = @($cfg.links | Where-Object { $_.name -eq 'newdir' })
+    Assert ($entry.Count -eq 1 -and $entry[0].machines.$env:COMPUTERNAME -like '*\alt\newdir') 'add 同名項目：記錄這台電腦的位置'
+    Assert ((Get-Item "$home2\alt\newdir" -Force).LinkType -eq 'Junction') 'add 同名項目：新位置已連結'
+    Assert ($script:LastOutput -match '舊位置還留著連結') 'add 同名項目：提醒舊位置的連結'
+
     # add-reg：記錄目前的值
     New-ItemProperty $regKey -Name Other -Value 'abc' -PropertyType String -Force | Out-Null
     Invoke-WinSync 'add-reg', ($regKey -replace '^HKCU:', 'HKEY_CURRENT_USER'), 'Other', '測試字串'
@@ -68,7 +81,7 @@ try {
     Remove-Item Env:WINSYNC_DATA
     Remove-Item $regKey -Recurse -Force -ErrorAction SilentlyContinue
     # 先拆連結再刪，避免刪除時跟進連結目標
-    Get-ChildItem $home2 -Force | Where-Object LinkType | ForEach-Object {
+    Get-ChildItem $home2, "$home2\alt" -Force -ErrorAction SilentlyContinue | Where-Object LinkType | ForEach-Object {
         if ($_.PSIsContainer) { [IO.Directory]::Delete($_.FullName) } else { [IO.File]::Delete($_.FullName) }
     }
     Remove-Item $tmp -Recurse -Force

@@ -81,10 +81,33 @@ function Sync-Links {
     }
 }
 
+# 這台電腦的本機位置：machines 有這台電腦名稱就用它，否則用 path；都沒有回傳 $null
+function Get-LinkPath($Link) {
+    $m = if ($Link.machines) { $Link.machines.PSObject.Properties[$env:COMPUTERNAME] } else { $null }
+    if ($m -and $m.Value) { return Expand-PathVars $m.Value }
+    if ($Link.path) { return Expand-PathVars $Link.path }
+    $null
+}
+
+# 記錄這台電腦的位置；和預設 path 相同時移除這台的設定
+function Set-LinkMachinePath($Link, [string]$Path) {
+    if ($Link.machines) {
+        $Link.machines.PSObject.Properties.Remove($env:COMPUTERNAME)
+    } else {
+        $Link | Add-Member -NotePropertyName machines -NotePropertyValue ([pscustomobject]@{}) -Force
+    }
+    if ($Link.path -and (Test-SamePath (Expand-PathVars $Link.path) $Path)) { return }
+    $Link.machines | Add-Member -NotePropertyName $env:COMPUTERNAME -NotePropertyValue (Compress-PathVars $Path)
+}
+
 function Sync-OneLink {
     param($Link, [string]$FilesDir, [switch]$DryRun, [switch]$Interactive)
     $name     = $Link.name
-    $local    = Expand-PathVars $Link.path
+    $local    = Get-LinkPath $Link
+    if (-not $local) {
+        Write-Skip "$name：這台電腦（$env:COMPUTERNAME）沒有設定位置（要同步的話執行 win-sync add <路徑> $name）"
+        return
+    }
     $store    = Join-Path $FilesDir $name
     $item     = Get-Item -LiteralPath $local -Force -ErrorAction SilentlyContinue
     $hasStore = Test-Path -LiteralPath $store

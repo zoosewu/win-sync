@@ -24,6 +24,7 @@
 - 注意：已載入的 `WinSync.Native` 型別無法在同一個 process 內重新定義。smoke 每次呼叫都開新 process，所以沒影響。
 - 小瑕疵（未修）：連結失敗後，status 會顯示「本機與 Dropbox 都有，改用 Dropbox 版本（本機版備份）」。實際上兩邊內容相同時只會刪除重連，不會產生備份。
 
+- 各電腦位置不同的設定檔：`links[].machines`（以 `%COMPUTERNAME%` 為 key，優先於 `path`）。`add <路徑> <已存在的名稱>` 會記錄這台電腦的位置，舊位置留下的連結會產生待辦提醒。
 - `README.md`、`.gitattributes`、git repo（遠端 `https://github.com/zoosewu/win-sync`，分支 `main`）。
 
 ## 尚未完成
